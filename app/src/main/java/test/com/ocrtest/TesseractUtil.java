@@ -199,12 +199,12 @@ public class TesseractUtil {
         }
 
         if (right - left < width * 0.3f) {
-            if (imageView != null && imageView.getVisibility() == View.VISIBLE) {
+            if (imageView != null ) {
                 bmp.setPixels(pixels, 0, width, 0, 0, width, height);
                 //将裁切的图片显示出来
                 showImage(bmp, imageView);
             } else
-                bmp.recycle();
+            bmp.recycle();
             return null;
         }
 
@@ -233,7 +233,6 @@ public class TesseractUtil {
         int charMaxWidth = (right - left) / 11;
         int charMaxHeight = (int) ((right - left) / 11 * 1.5);
         boolean isInterfereCleared = false;
-        boolean gotCharMaxRect = false;
         while (true) {
             boolean isNormal = false;
             if (!isInterfereCleared)
@@ -307,12 +306,12 @@ public class TesseractUtil {
         bottom = textRect[3];
 
         if (bottom - top > (right - left) / 5 || bottom - top == 0 || charCount != 11) {
-            if (imageView != null && imageView.getVisibility() == View.VISIBLE) {
+            if (imageView != null ) {
                 bmp.setPixels(pixels, 0, width, 0, 0, width, height);
                 //将裁切的图片显示出来
                 showImage(bmp, imageView);
             } else
-                bmp.recycle();
+            bmp.recycle();
             return null;
         }
 
@@ -342,7 +341,7 @@ public class TesseractUtil {
         final Bitmap newBmp = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888);
         newBmp.setPixels(targetPixels, 0, targetWidth, 0, 0, targetWidth, targetHeight);
         //将裁切的图片显示出来
-        if (imageView != null && imageView.getVisibility() == View.VISIBLE)
+        if (imageView != null)
             showImage(newBmp, imageView);
 
         return newBmp;
