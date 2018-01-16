@@ -17,6 +17,9 @@ import android.widget.ImageView;
 
 
 import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.util.List;
 import java.util.regex.Matcher;
@@ -36,6 +39,7 @@ public class CameraView extends SurfaceView implements SurfaceHolder.Callback, C
     private int imageHeight = 1080;
     //帧率
     private int frameRate = 30;
+    private ImageView hintImage;
 
     public CameraView(Context context) {
         super(context);
@@ -80,7 +84,8 @@ public class CameraView extends SurfaceView implements SurfaceHolder.Callback, C
         }
     }
 
-    private boolean isScanning = false;
+    public boolean isScanning = false;
+    private long starTime, endTime;
 
     /**
      * Camera帧数据回调用
@@ -91,45 +96,113 @@ public class CameraView extends SurfaceView implements SurfaceHolder.Callback, C
         if (!isScanning) {
             isScanning = true;
             try {
+                Log.d("scantest", "-------------Start------------------");
+                starTime = System.currentTimeMillis();
                 //获取Camera预览尺寸
                 Camera.Size size = camera.getParameters().getPreviewSize();
+                int left = (int) (size.width / 2 - getResources().getDimension(R.dimen.x20));
+                int top = (int) (size.height / 2 - getResources().getDimension(R.dimen.x80));
+                int right = (int) (left + getResources().getDimension(R.dimen.x40));
+                int bottom = (int) (top + getResources().getDimension(R.dimen.x160));
                 //将帧数据转为bitmap
-                YuvImage image = new YuvImage(data, ImageFormat.NV21, size.width, size.height, null);
+                final YuvImage image = new YuvImage(data, ImageFormat.NV21, size.width, size.height, null);
                 if (image != null) {
                     ByteArrayOutputStream stream = new ByteArrayOutputStream();
-                    image.compressToJpeg(new Rect(0, 0, size.width, size.height), 80, stream);
+                    image.compressToJpeg(new Rect(left, top, right, bottom), getQuality(size.height), stream);
                     Bitmap bmp = BitmapFactory.decodeByteArray(stream.toByteArray(), 0, stream.size());
-                    //这里返回的照片默认横向的，先将图片旋转90度
-                    bmp = rotateToDegrees(bmp, 90);
-                    //然后裁切出需要的区域，具体区域要和UI布局中配合，这里取图片正中间，宽度取图片的一半，高度这里用的适配数据，可以自定义
-                    bmp = bitmapCrop(bmp, bmp.getWidth() / 4, bmp.getHeight() / 2 - (int) getResources().getDimension(R.dimen.x25), bmp.getWidth() / 2, (int) getResources().getDimension(R.dimen.x50));
-                    if (bmp == null)
+
+                    endTime = System.currentTimeMillis();
+                    Log.d("scantest", "帧数据转Bitmap: " + (endTime - starTime) + "ms");
+                    starTime = endTime;
+                    if (bmp == null) {
+                        isScanning = false;
                         return;
-                    //将裁切的图片显示出来（测试用，需要为CameraView  setTag（ImageView））
-                    ImageView imageView = (ImageView) getTag();
-                    imageView.setImageBitmap(bmp);
-                    stream.close();
+                    }
+                    if (hintImage == null && getTag() != null) {
+                        if (getTag() instanceof ImageView)
+                            hintImage = (ImageView) getTag();
+                    }
+
+                    final Bitmap scanBmp = TesseractUtil.getInstance().catchPhoneRect(TesseractUtil.rotateToDegrees(bmp, 90), hintImage);
+                    if (scanBmp == null) {
+                        isScanning = false;
+                        return;
+                    }
+                    endTime = System.currentTimeMillis();
+                    Log.d("scantest", "图像旋转、二值化、内容过滤: " + (endTime - starTime) + "ms");
+                    starTime = endTime;
+
                     //开始识别
-                    OcrUtil.ScanEnglish(bmp, new MyCallBack() {
+                    TesseractUtil.getInstance().scanNumber(scanBmp, new SimpleCallback() {
                         @Override
                         public void response(String result) {
+                            endTime = System.currentTimeMillis();
+                            Log.d("scantest", "内容识别: " + (endTime - starTime) + "ms");
+                            starTime = endTime;
+
                             //这是区域内扫除的所有内容
                             Log.d("scantest", "扫描结果：  " + result);
-                            if (!TextUtils.isEmpty(getTelnum(result))) {
+                            if (!TextUtils.isEmpty(getTelnum(result.replace(" ", "")))) {
                                 //检索结果中是否包含手机号
                                 Log.d("scantest", "手机号码：  " + getTelnum(result));
-                                isScanning=true;
-                            } else
-                                isScanning = false;
+                            }
+                            isScanning = false;
+                            Log.d("scantest", "-------------End------------------");
                         }
                     });
                 }
             } catch (Exception ex) {
+                Log.d("scantest", ex.getMessage());
                 isScanning = false;
             }
         }
     }
 
+    //压缩比例
+    private int getQuality(int width) {
+        int quality = 100;
+        if (width > 480) {
+            float w = 480 / (float) width;
+            quality = (int) (w * 100);
+        }
+        return quality;
+    }
+
+    /**
+     * 保存图片到本地
+     */
+    public String saveMyBitmap(Bitmap mBitmap, String fileName) {
+        if (mBitmap == null)
+            return null;
+        File file = null;
+        try {
+            file = new File(getContext().getCacheDir().getAbsolutePath() + fileName);
+            if (!file.exists())
+                file.createNewFile();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        FileOutputStream fOut = null;
+        try {
+            fOut = new FileOutputStream(file);
+        } catch (FileNotFoundException e) {
+            e.printStackTrace();
+        }
+        mBitmap.compress(Bitmap.CompressFormat.JPEG, 100, fOut);
+        try {
+            fOut.flush();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        try {
+            fOut.close();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        if (file.exists())
+            return file.getAbsolutePath();
+        return null;
+    }
 
     /**
      * 获取字符串中的手机号
@@ -150,6 +223,26 @@ public class CameraView extends SurfaceView implements SurfaceHolder.Callback, C
         }
         return bf.toString();
     }
+
+    /**
+     * 获取字符串中的单号
+     */
+    public String getOrder(String sParam) {
+        if (sParam.length() <= 0)
+            return "";
+        Pattern pattern = Pattern.compile("\\d{12,}$*");
+        Matcher matcher = pattern.matcher(sParam);
+        StringBuffer bf = new StringBuffer();
+        while (matcher.find()) {
+            bf.append(matcher.group()).append(",");
+        }
+        int len = bf.length();
+        if (len > 0) {
+            bf.deleteCharAt(len - 1);
+        }
+        return bf.toString();
+    }
+
 
     /**
      * Bitmap裁剪
@@ -173,6 +266,7 @@ public class CameraView extends SurfaceView implements SurfaceHolder.Callback, C
         }
         return bitmap;
     }
+
 
     /**
      * 图片旋转
@@ -206,7 +300,7 @@ public class CameraView extends SurfaceView implements SurfaceHolder.Callback, C
             }
         }
         camParams.setPreviewSize(imageWidth, imageHeight);
-//        camParams.setPictureSize(imageWidth, imageHeight);
+        camParams.setPictureSize(imageWidth, imageHeight);
 //        Log.v(TAG, "Setting imageWidth: " + imageWidth + " imageHeight: " + imageHeight + " frameRate: " + frameRate);
 
         camParams.setPreviewFrameRate(frameRate);
