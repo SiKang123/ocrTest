@@ -91,71 +91,79 @@ public class CameraView extends SurfaceView implements SurfaceHolder.Callback, C
      * Camera帧数据回调用
      */
     @Override
-    public void onPreviewFrame(byte[] data, Camera camera) {
+    public void onPreviewFrame(final byte[] data, final Camera camera) {
         //识别中不处理其他帧数据
         if (!isScanning) {
             isScanning = true;
-            try {
-                Log.d("scantest", "-------------Start------------------");
-                starTime = System.currentTimeMillis();
-                //获取Camera预览尺寸
-                Camera.Size size = camera.getParameters().getPreviewSize();
-                int left = (int) (size.width / 2 - getResources().getDimension(R.dimen.x20));
-                int top = (int) (size.height / 2 - getResources().getDimension(R.dimen.x80));
-                int right = (int) (left + getResources().getDimension(R.dimen.x40));
-                int bottom = (int) (top + getResources().getDimension(R.dimen.x160));
-                //将帧数据转为bitmap
-                final YuvImage image = new YuvImage(data, ImageFormat.NV21, size.width, size.height, null);
-                if (image != null) {
-                    ByteArrayOutputStream stream = new ByteArrayOutputStream();
-                    image.compressToJpeg(new Rect(left, top, right, bottom), getQuality(size.height), stream);
-                    Bitmap bmp = BitmapFactory.decodeByteArray(stream.toByteArray(), 0, stream.size());
+            new Thread(new Runnable() {
+                @Override
+                public void run() {
 
-                    endTime = System.currentTimeMillis();
-                    Log.d("scantest", "帧数据转Bitmap: " + (endTime - starTime) + "ms");
-                    starTime = endTime;
-                    if (bmp == null) {
-                        isScanning = false;
-                        return;
-                    }
-                    if (hintImage == null && getTag() != null) {
-                        if (getTag() instanceof ImageView)
-                            hintImage = (ImageView) getTag();
-                    }
+                    try {
+                        Log.d("scantest", "-------------Start------------------");
+                        starTime = System.currentTimeMillis();
+                        //获取Camera预览尺寸
+                        Camera.Size size = camera.getParameters().getPreviewSize();
+                        int left = (int) (size.width / 2 - getResources().getDimension(R.dimen.x20));
+                        int top = (int) (size.height / 2 - getResources().getDimension(R.dimen.x80));
+                        int right = (int) (left + getResources().getDimension(R.dimen.x40));
+                        int bottom = (int) (top + getResources().getDimension(R.dimen.x160));
+                        //将帧数据转为bitmap
+                        final YuvImage image = new YuvImage(data, ImageFormat.NV21, size.width, size.height, null);
+                        if (image != null) {
+                            ByteArrayOutputStream stream = new ByteArrayOutputStream();
+                            image.compressToJpeg(new Rect(left, top, right, bottom), getQuality(size.height), stream);
+                            Bitmap bmp = BitmapFactory.decodeByteArray(stream.toByteArray(), 0, stream.size());
 
-                    final Bitmap scanBmp = TesseractUtil.getInstance().catchPhoneRect(TesseractUtil.rotateToDegrees(bmp, 90), hintImage);
-                    if (scanBmp == null) {
-                        isScanning = false;
-                        return;
-                    }
-                    endTime = System.currentTimeMillis();
-                    Log.d("scantest", "图像旋转、二值化、内容过滤: " + (endTime - starTime) + "ms");
-                    starTime = endTime;
-
-                    //开始识别
-                    TesseractUtil.getInstance().scanNumber(scanBmp, new SimpleCallback() {
-                        @Override
-                        public void response(String result) {
                             endTime = System.currentTimeMillis();
-                            Log.d("scantest", "内容识别: " + (endTime - starTime) + "ms");
+                            Log.d("scantest", "帧数据转Bitmap: " + (endTime - starTime) + "ms");
+                            starTime = endTime;
+                            if (bmp == null) {
+                                isScanning = false;
+                                return;
+                            }
+                            if (hintImage == null && getTag() != null) {
+                                if (getTag() instanceof ImageView)
+                                    hintImage = (ImageView) getTag();
+                            }
+
+                            final Bitmap scanBmp = TesseractUtil.getInstance().catchPhoneRect(TesseractUtil.rotateToDegrees(bmp, 90), hintImage);
+                            if (scanBmp == null) {
+                                isScanning = false;
+                                return;
+                            }
+                            endTime = System.currentTimeMillis();
+                            Log.d("scantest", "图像旋转、二值化、内容过滤: " + (endTime - starTime) + "ms");
                             starTime = endTime;
 
-                            //这是区域内扫除的所有内容
-                            Log.d("scantest", "扫描结果：  " + result);
-                            if (!TextUtils.isEmpty(getTelnum(result.replace(" ", "")))) {
-                                //检索结果中是否包含手机号
-                                Log.d("scantest", "手机号码：  " + getTelnum(result));
-                            }
-                            isScanning = false;
-                            Log.d("scantest", "-------------End------------------");
+                            //开始识别
+                            TesseractUtil.getInstance().scanNumber(scanBmp, new SimpleCallback() {
+                                @Override
+                                public void response(String result) {
+                                    endTime = System.currentTimeMillis();
+                                    Log.d("scantest", "内容识别: " + (endTime - starTime) + "ms");
+                                    starTime = endTime;
+
+                                    //这是区域内扫除的所有内容
+                                    Log.d("scantest", "扫描结果：  " + result);
+                                    if (!TextUtils.isEmpty(getTelnum(result.replace(" ", "")))) {
+                                        //检索结果中是否包含手机号
+                                        Log.d("scantest", "手机号码：  " + getTelnum(result));
+                                    }
+                                    isScanning = false;
+                                    Log.d("scantest", "-------------End------------------");
+                                }
+                            });
                         }
-                    });
+                    } catch (Exception ex) {
+                        Log.d("scantest", ex.getMessage());
+                        isScanning = false;
+                    }
+
                 }
-            } catch (Exception ex) {
-                Log.d("scantest", ex.getMessage());
-                isScanning = false;
-            }
+            }).start();
         }
+
     }
 
     //压缩比例

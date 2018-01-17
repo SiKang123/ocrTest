@@ -94,7 +94,7 @@ public class TesseractUtil {
                 String result = baseApi.getUTF8Text();
                 baseApi.clear();
                 baseApi.end();
-//                bmp.recycle();
+                bmp.recycle();
                 callBack.response(result);
             }
         }
