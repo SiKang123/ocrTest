@@ -3,12 +3,16 @@ package test.com.ocrtest;
 import android.graphics.Bitmap;
 import android.graphics.Matrix;
 import android.os.Environment;
+import android.util.Log;
 import android.view.View;
 import android.widget.ImageView;
 
 import com.googlecode.tesseract.android.TessBaseAPI;
 
 import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
+import java.io.IOException;
 import java.util.Stack;
 
 /**
@@ -90,10 +94,9 @@ public class TesseractUtil {
                 String result = baseApi.getUTF8Text();
                 baseApi.clear();
                 baseApi.end();
-                bmp.recycle();
+//                bmp.recycle();
                 callBack.response(result);
             }
-
         }
     }
 
@@ -199,15 +202,16 @@ public class TesseractUtil {
         }
 
         if (right - left < width * 0.3f) {
-            if (imageView != null ) {
+            if (imageView != null) {
                 bmp.setPixels(pixels, 0, width, 0, 0, width, height);
                 //将裁切的图片显示出来
                 showImage(bmp, imageView);
             } else
-            bmp.recycle();
+                bmp.recycle();
+            Log.d("scantest", "初步判断无手机号码");
             return null;
         }
-
+        Log.d("scantest", "初步判断可能存在手机号码");
 
         //粗略计算高度
         top = (int) (centerY - (right - left) / 11 * 1.5);
@@ -232,27 +236,37 @@ public class TesseractUtil {
         startX = left;
         int charMaxWidth = (right - left) / 11;
         int charMaxHeight = (int) ((right - left) / 11 * 1.5);
-        boolean isInterfereCleared = false;
+        int charWidth = 0;
+        boolean isInterfereClearing = false;
         while (true) {
             boolean isNormal = false;
-            if (!isInterfereCleared)
+            if (!isInterfereClearing)
                 isNormal = catchCharRect(pixels, usedPixels, charRect, width, height, charMaxWidth, charMaxHeight, charRect[0], charRect[1]);
             else
-                isNormal = clearInterfere(pixels, usedPixels, charRect, width, height, charMaxWidth, charMaxHeight, charRect[0], charRect[1]);
+                isNormal = clearInterfere(pixels, usedPixels, charRect, width, height, charWidth, charWidth, charRect[0], charRect[1]);
             charCount++;
 
             if (!isNormal) {
                 hasStain = true;
-            } else {
-                if (hasStain && !isInterfereCleared) {
+                if (charWidth != 0) {
                     usedPixels = new int[width * height];
-                    charMaxHeight = charRect[3] - charRect[1];
-                    charMaxWidth = (int) (charMaxHeight * 0.6f);
                     charRect = new int[]{textStartX, centerY, 0, centerY};
                     charCount = 0;
-                    isInterfereCleared = true;
+                    isInterfereClearing = true;
+                }
+            } else {
+                if (hasStain && !isInterfereClearing) {
+                    usedPixels = new int[width * height];
+                    charWidth = charRect[3] - charRect[1];
+//                    charMaxWidth = charMaxHeight;
+                    charRect = new int[]{textStartX, centerY, 0, centerY};
+                    charCount = 0;
+                    isInterfereClearing = true;
                     continue;
                 } else {
+                    if (charWidth == 0) {
+                        charWidth = charRect[3] - charRect[1];
+                    }
                     if (textRect[0] > charRect[0])
                         textRect[0] = charRect[0];
 
@@ -269,7 +283,7 @@ public class TesseractUtil {
             }
 
             boolean isFoundChar = false;
-            if (!hasStain || isInterfereCleared) {
+            if (!hasStain || isInterfereClearing) {
                 //获取下一个字符的rect
                 for (int x = charRect[2] + 1; x <= right; x++)
                     if (pixels[width * centerY + x] != PX_WHITE) {
@@ -304,18 +318,18 @@ public class TesseractUtil {
         top = textRect[1];
         right = textRect[2];
         bottom = textRect[3];
-
+        Log.d("scantest", "捕捉到到 " + charCount + " 个字符 ");
         if (bottom - top > (right - left) / 5 || bottom - top == 0 || charCount != 11) {
-            if (imageView != null ) {
+            if (imageView != null) {
                 bmp.setPixels(pixels, 0, width, 0, 0, width, height);
                 //将裁切的图片显示出来
                 showImage(bmp, imageView);
             } else
-            bmp.recycle();
+                bmp.recycle();
             return null;
         }
 
-
+        Log.d("scantest", "发现手机号，准备识别");
         /**
          * 将最终捕捉到的手机号区域像素提取到新的数组
          * */
@@ -327,10 +341,10 @@ public class TesseractUtil {
         for (int i = top; i < bottom; i++) {
             for (int j = left; j < right; j++) {
                 if (index < targetPixels.length) {
-                    if (pixels[width * i + j] == PX_WHITE)
-                        targetPixels[index] = PX_WHITE;
-                    else
+                    if (pixels[width * i + j] == PX_BLACK)
                         targetPixels[index] = PX_BLACK;
+                    else
+                        targetPixels[index] = PX_WHITE;
                 }
                 index++;
             }
@@ -347,6 +361,42 @@ public class TesseractUtil {
         return newBmp;
     }
 
+    /**
+     * 保存图片到本地
+     */
+    public static File saveBitmap(Bitmap mBitmap, String fileName, int... quality) {
+        if (mBitmap == null)
+            return null;
+        File file = null;
+        try {
+            file = new File(TESSBASE_PATH + fileName);
+            if (!file.exists())
+                file.createNewFile();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        FileOutputStream fOut = null;
+        try {
+            fOut = new FileOutputStream(file);
+        } catch (FileNotFoundException e) {
+            e.printStackTrace();
+        }
+        int q = quality != null && quality.length > 0 ? quality[0] : 100;
+        mBitmap.compress(Bitmap.CompressFormat.JPEG, q, fOut);
+        try {
+            fOut.flush();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        try {
+            fOut.close();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        if (file.exists())
+            return file;
+        return null;
+    }
 
     private final int MOVE_LEFT = 0;
     private final int MOVE_TOP = 1;
@@ -388,8 +438,6 @@ public class TesseractUtil {
                 if (nowX == 0 || nowX >= width - 1 || nowY == 0 || nowY >= height - 1) {
                     return false;
                 }
-
-
             }
 
             //当前像素的左边是否还有黑色像素点
@@ -452,6 +500,9 @@ public class TesseractUtil {
         return true;
     }
 
+    private final int WAIT_HANDLE = 0;//待处理像素
+    private final int HANDLED = -1;//已处理像素
+    private final int HANDLING = -2;//处理过但未处理完成的像素
 
     /**
      * 清除干扰
@@ -461,12 +512,12 @@ public class TesseractUtil {
         int nowY = y;
         //记录动作
         Stack<Integer> stepStack = new Stack<>();
-
+        boolean needReset = true;
         while (true) {
-            if (used[width * nowY + nowX] == 0) {
-                used[width * nowY + nowX] = -1;
+            if (used[width * nowY + nowX] == WAIT_HANDLE) {
+                used[width * nowY + nowX] = HANDLED;
 
-                if (charRect[2] - charRect[0] < maxWidth && charRect[3] - charRect[1] < maxHeight) {
+                if (charRect[2] - charRect[0] <= maxWidth && charRect[3] - charRect[1] <= maxHeight) {
                     if (charRect[0] > nowX)
                         charRect[0] = nowX;
 
@@ -479,10 +530,14 @@ public class TesseractUtil {
                     if (charRect[3] < nowY)
                         charRect[3] = nowY;
                 } else {
+                    if (needReset)
+                        needReset = false;
+                    used[width * nowY + nowX] = HANDLING;
                     pixels[width * nowY + nowX] = PX_UNKNOW;
                 }
             } else if (pixels[width * nowY + nowX] == PX_UNKNOW) {
-                if (charRect[2] - charRect[0] < maxWidth && charRect[3] - charRect[1] < maxHeight) {
+
+                if (charRect[2] - charRect[0] <= maxWidth && charRect[3] - charRect[1] <= maxHeight) {
                     pixels[width * nowY + nowX] = PX_BLACK;
                     if (charRect[0] > nowX)
                         charRect[0] = nowX;
@@ -496,14 +551,18 @@ public class TesseractUtil {
                     if (charRect[3] < nowY)
                         charRect[3] = nowY;
 
+                    used[width * nowY + nowX] = HANDLED;
                 } else {
-                    return true;
+                    if (needReset)
+                        needReset = false;
                 }
             }
 
+
             //当前像素的左边是否还有黑色像素点
             int leftX = nowX - 1;
-            if (leftX >= 0 && pixels[width * nowY + leftX] != PX_WHITE && used[width * nowY + leftX] == 0) {
+            int leftIndex = width * nowY + leftX;
+            if (leftX >= 0 && pixels[leftIndex] != PX_WHITE && (used[leftIndex] == WAIT_HANDLE || (needReset && used[leftIndex] == HANDLING))) {
                 nowX = leftX;
                 stepStack.push(MOVE_LEFT);
                 continue;
@@ -511,7 +570,8 @@ public class TesseractUtil {
 
             //当前像素的上边是否还有黑色像素点
             int topY = nowY - 1;
-            if (topY >= 0 && pixels[width * topY + nowX] != PX_WHITE && used[width * topY + nowX] == 0) {
+            int topIndex = width * topY + nowX;
+            if (topY >= 0 && pixels[topIndex] != PX_WHITE && (used[topIndex] == WAIT_HANDLE || (needReset && used[topIndex] == HANDLING))) {
                 nowY = topY;
                 stepStack.push(MOVE_TOP);
                 continue;
@@ -520,7 +580,8 @@ public class TesseractUtil {
 
             //当前像素的右边是否还有黑色像素点
             int rightX = nowX + 1;
-            if (rightX < width && pixels[width * nowY + rightX] != PX_WHITE && used[width * nowY + rightX] == 0) {
+            int rightIndex = width * nowY + rightX;
+            if (rightX < width && pixels[rightIndex] != PX_WHITE && (used[rightIndex] == WAIT_HANDLE || (needReset && used[rightIndex] == HANDLING))) {
                 nowX = rightX;
                 stepStack.push(MOVE_RIGHT);
                 continue;
@@ -529,7 +590,8 @@ public class TesseractUtil {
 
             //当前像素的下边是否还有黑色像素点
             int bottomY = nowY + 1;
-            if (bottomY < height && pixels[width * bottomY + nowX] != PX_WHITE && used[width * bottomY + nowX] == 0) {
+            int bottomIndex = width * bottomY + nowX;
+            if (bottomY < height && pixels[bottomIndex] != PX_WHITE && (used[bottomIndex] == WAIT_HANDLE || (needReset && used[bottomIndex] == HANDLING))) {
                 nowY = bottomY;
                 stepStack.push(MOVE_BOTTOM);
                 continue;
@@ -554,9 +616,6 @@ public class TesseractUtil {
             } else {
                 break;
             }
-        }
-        if (charRect[2] - charRect[0] == 0 || charRect[3] - charRect[1] == 0) {
-            return false;
         }
         return true;
     }
